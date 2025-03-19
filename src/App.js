@@ -7,6 +7,7 @@ import Timetable from "./pages/Timetable"; // New timetable page
  import Login from "./pages/Login"; 
  import Signup from "./pages/Signup"; 
  import Home from "./pages/Home"; 
+ import Classes from "./pages/Today-classes";
  import "./styles.css"; // Normal CSS styling  
  function App() {   
   return (     
@@ -19,7 +20,9 @@ import Timetable from "./pages/Timetable"; // New timetable page
   <Route path="/admin-dashboard" element={<AdminDashboard />} />           
   <Route path="/lecturer-dashboard" element={<LecturerDashboard />} />           
   <Route path="/class-rep-dashboard" element={<ClassRepDashboard />} />           
-  <Route path="/timetable" element={<Timetable />} />         
+  <Route path="/timetable" element={<Timetable />} />     
+  <Route path="/today-classes" element={<Classes />} />
+     
    </Routes>      
     </div>     
     </Router>  
