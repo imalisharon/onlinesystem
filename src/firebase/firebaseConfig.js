@@ -18,7 +18,9 @@ import {
   doc,
   getDoc,
   setDoc,
+  addDoc,
   updateDoc,
+  arrayUnion,
   serverTimestamp,
   onSnapshot
 } from "firebase/firestore";
@@ -779,7 +781,7 @@ const addClassToTimetable = async (classData) => {
     
     // Add to Firestore
     const timetableRef = collection(db, "timetable");
-    const docRef = await setDoc(doc(timetableRef), finalClassData);
+    const docRef = await addDoc(timetableRef, finalClassData);
     
     return { success: true, message: "Class added successfully", id: docRef.id };
   } catch (error) {
@@ -853,33 +855,704 @@ const getUpcomingWeekClasses = async (userType, userIdentifier) => {
   }
 };
 
-export {
-  app,
-  auth,
-  db,
-  getCurrentUser,
-  signOutUser,
-  resendVerificationEmail,
-  updateUserProfile,
-  checkEmailExists,
-  countUsersByRole,
-  checkCourseHasRep,
-  checkAdminRegistrationStatus,
-  isValidLecturerEmail,
-  isValidStudentEmail,
-  getAdminCount,
-  checkClassRepExists,
-  validateEmailByRole,
-  createNewUser,
-  signInUser,
-  ensureCollectionExists,
-  // Export new functions
-  getLecturerTimetable,
-  getCourseTimetable,
-  getDepartmentTimetable,
-  subscribeLecturerTimetable,
-  subscribeCourseTimetable,
-  getTodayClasses,
-  addClassToTimetable,
-  getUpcomingWeekClasses
+// Get all lecturers from the users collection
+const getLecturers = async () => {
+  try {
+    const usersRef = collection(db, "users");
+    const q = query(usersRef, where("role", "==", "lecturer"));
+    const querySnapshot = await getDocs(q);
+    
+    const lecturers = [];
+    querySnapshot.forEach((doc) => {
+      lecturers.push({
+        id: doc.id,
+        ...doc.data()
+      });
+    });
+    
+    return lecturers;
+  } catch (error) {
+    console.error("Error fetching lecturers:", error);
+    return [];
+  }
 };
+
+// Get all class representatives from the users collection
+const getClassReps = async () => {
+  try {
+    const usersRef = collection(db, "users");
+    const q = query(usersRef, where("role", "==", "class_rep"));
+    const querySnapshot = await getDocs(q);
+    
+    const classReps = [];
+    querySnapshot.forEach((doc) => {
+      classReps.push({
+        id: doc.id,
+        ...doc.data()
+      });
+    });
+    
+    return classReps;
+  } catch (error) {
+    console.error("Error fetching class representatives:", error);
+    return [];
+  }
+};
+export const getLecturerSchedule = async (lecturerId) => {
+  try {
+    const lecturerDoc = await getDoc(doc(db, "lecturers", lecturerId));
+    if (!lecturerDoc.exists()) {
+      throw new Error("Lecturer not found");
+    }
+    
+    const data = lecturerDoc.data();
+    if (!data.schedule || !Array.isArray(data.schedule)) {
+      return [];
+    }
+    
+    // Get details for each class in the schedule
+    const classPromises = data.schedule.map(classId => 
+      getDoc(doc(db, "classes", classId))
+    );
+    
+    const classResults = await Promise.all(classPromises);
+    return classResults
+      .filter(doc => doc.exists())
+      .map(doc => ({ id: doc.id, ...doc.data() }));
+  } catch (error) {
+    console.error("Error fetching lecturer schedule:", error);
+    throw error;
+  }
+};
+
+export const getClassRepSchedule = async (classRepId) => {
+  try {
+    const classRepDoc = await getDoc(doc(db, "classReps", classRepId));
+    if (!classRepDoc.exists()) {
+      throw new Error("Class representative not found");
+    }
+    
+    const data = classRepDoc.data();
+    if (!data.schedule || !Array.isArray(data.schedule)) {
+      return [];
+    }
+    
+    // Get details for each class in the schedule
+    const classPromises = data.schedule.map(classId => 
+      getDoc(doc(db, "classes", classId))
+    );
+    
+    const classResults = await Promise.all(classPromises);
+    return classResults
+      .filter(doc => doc.exists())
+      .map(doc => ({ id: doc.id, ...doc.data() }));
+  } catch (error) {
+    console.error("Error fetching class rep schedule:", error);
+    throw error;
+  }
+};
+
+// Create a new class with check for room scheduling conflicts
+const createClass = async (classData) => {
+  try {
+    if (!classData) {
+      return { success: false, message: "Class data is required" };
+    }
+    
+    // Ensure required fields are present
+    const requiredFields = ["courseCode", "lecturerEmail", "startDateTime", "endDateTime", "room", "lecturerId", "classRepId"];
+    for (const field of requiredFields) {
+      if (!classData[field]) {
+        return { success: false, message: `${field} is required` };
+      }
+    }
+    
+    // Check if there's an existing class in the same room at the same time
+    const classesRef = collection(db, "classes");
+    const overlappingQuery = query(
+      classesRef,
+      where("room", "==", classData.room),
+      where("startDateTime", "<=", classData.endDateTime),
+      where("endDateTime", ">=", classData.startDateTime)
+    );
+    
+    const overlappingClasses = await getDocs(overlappingQuery);
+    
+    if (!overlappingClasses.empty) {
+      return {
+        success: false,
+        message: "There is already a class scheduled in this room at the selected time."
+      };
+    }
+    
+    // Add the new class to Firestore
+    const newClassRef = await addDoc(classesRef, {
+      ...classData,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    });
+    
+    const classId = newClassRef.id;
+    
+    // Update the lecturer's schedule
+    const lecturerRef = doc(db, "lecturers", classData.lecturerId);
+    await updateDoc(lecturerRef, {
+      schedule: arrayUnion(classId)
+    });
+    
+    // Update the class rep's schedule
+    const classRepRef = doc(db, "classReps", classData.classRepId);
+    await updateDoc(classRepRef, {
+      schedule: arrayUnion(classId)
+    });
+    
+    return {
+      success: true,
+      message: "Class created successfully",
+      id: classId
+    };
+  } catch (error) {
+    console.error("Error creating class:", error);
+    return { 
+      success: false, 
+      message: "Failed to create class: " + error.message 
+    };
+  }
+};
+
+// Approve a pending user account
+const approveUserAccount = async (userId) => {
+      try {
+        const userRef = doc(db, "users", userId);
+        const userDoc = await getDoc(userRef);
+        
+        if (!userDoc.exists()) {
+          return {
+            success: false,
+            message: "User not found"
+          };
+        }
+        
+        // Update the user's approved status
+        await updateDoc(userRef, {
+          approved: true,
+          approvedAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        });
+        
+        return {
+          success: true,
+          message: "User account approved successfully"
+        };
+      } catch (error) {
+        console.error("Error approving user account:", error);
+        return {
+          success: false,
+          message: "Failed to approve user: " + error.message
+        };
+      }
+    };
+    
+    // Reject/Deny a pending user account
+    const rejectUserAccount = async (userId, reason = "") => {
+      try {
+        const userRef = doc(db, "users", userId);
+        const userDoc = await getDoc(userRef);
+        
+        if (!userDoc.exists()) {
+          return {
+            success: false,
+            message: "User not found"
+          };
+        }
+        
+        // Update the user's rejected status with reason
+        await updateDoc(userRef, {
+          approved: false,
+          rejected: true,
+          rejectionReason: reason,
+          rejectedAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        });
+        
+        return {
+          success: true,
+          message: "User account rejected successfully"
+        };
+      } catch (error) {
+        console.error("Error rejecting user account:", error);
+        return {
+          success: false,
+          message: "Failed to reject user: " + error.message
+        };
+      }
+    };
+    
+    // Get all pending approval users
+    const getPendingApprovalUsers = async () => {
+      try {
+        const usersRef = collection(db, "users");
+        const q = query(
+          usersRef, 
+          where("approved", "==", false),
+          where("rejected", "!=", true)
+        );
+        
+        const querySnapshot = await getDocs(q);
+        
+        const pendingUsers = [];
+        querySnapshot.forEach((doc) => {
+          pendingUsers.push({
+            id: doc.id,
+            ...doc.data()
+          });
+        });
+        
+        return pendingUsers;
+      } catch (error) {
+        console.error("Error fetching pending approval users:", error);
+        return [];
+      }
+    };
+    
+    // Update class status (e.g., mark as canceled or rescheduled)
+    const updateClassStatus = async (classId, status, notes = "") => {
+      try {
+        const classRef = doc(db, "timetable", classId);
+        const classDoc = await getDoc(classRef);
+        
+        if (!classDoc.exists()) {
+          return {
+            success: false,
+            message: "Class not found"
+          };
+        }
+        
+        // Update class status
+        await updateDoc(classRef, {
+          status: status,
+          statusNotes: notes,
+          updatedAt: new Date().toISOString()
+        });
+        
+        return {
+          success: true,
+          message: `Class marked as ${status} successfully`
+        };
+      } catch (error) {
+        console.error("Error updating class status:", error);
+        return {
+          success: false,
+          message: "Failed to update class status: " + error.message
+        };
+      }
+    };
+    
+    // Reschedule a class
+    const rescheduleClass = async (classId, newDate, newStartTime, newEndTime, newRoom = null) => {
+      try {
+        const classRef = doc(db, "timetable", classId);
+        const classDoc = await getDoc(classRef);
+        
+        if (!classDoc.exists()) {
+          return {
+            success: false,
+            message: "Class not found"
+          };
+        }
+        
+        // Prepare update data
+        const updateData = {
+          date: newDate,
+          startTime: newStartTime,
+          endTime: newEndTime,
+          previousDate: classDoc.data().date,
+          previousStartTime: classDoc.data().startTime,
+          previousEndTime: classDoc.data().endTime,
+          status: "rescheduled",
+          updatedAt: new Date().toISOString()
+        };
+        
+        // If new room is provided, update that too
+        if (newRoom) {
+          updateData.room = newRoom;
+          updateData.previousRoom = classDoc.data().room;
+        }
+        
+        // Update the class
+        await updateDoc(classRef, updateData);
+        
+        return {
+          success: true,
+          message: "Class rescheduled successfully"
+        };
+      } catch (error) {
+        console.error("Error rescheduling class:", error);
+        return {
+          success: false,
+          message: "Failed to reschedule class: " + error.message
+        };
+      }
+    };
+    
+    // Get all departments
+    const getAllDepartments = async () => {
+      try {
+        const departmentsRef = collection(db, "departments");
+        const querySnapshot = await getDocs(departmentsRef);
+        
+        const departments = [];
+        querySnapshot.forEach((doc) => {
+          departments.push({
+            id: doc.id,
+            ...doc.data()
+          });
+        });
+        
+        return departments;
+      } catch (error) {
+        console.error("Error fetching departments:", error);
+        return [];
+      }
+    };
+    
+    // Get courses by department
+    const getCoursesByDepartment = async (department) => {
+      try {
+        if (!department) {
+          return [];
+        }
+        
+        const coursesRef = collection(db, "courses");
+        const q = query(coursesRef, where("department", "==", department));
+        const querySnapshot = await getDocs(q);
+        
+        const courses = [];
+        querySnapshot.forEach((doc) => {
+          courses.push({
+            id: doc.id,
+            ...doc.data()
+          });
+        });
+        
+        return courses;
+      } catch (error) {
+        console.error("Error fetching courses by department:", error);
+        return [];
+      }
+    };
+    
+    // Add a new department
+    const addDepartment = async (departmentData) => {
+      try {
+        if (!departmentData || !departmentData.name || !departmentData.code) {
+          return {
+            success: false,
+            message: "Department name and code are required"
+          };
+        }
+        
+        // Check if department already exists
+        const departmentsRef = collection(db, "departments");
+        const existingDeptQuery = query(
+          departmentsRef,
+          where("code", "==", departmentData.code)
+        );
+        const existingDept = await getDocs(existingDeptQuery);
+        
+        if (!existingDept.empty) {
+          return {
+            success: false,
+            message: "A department with this code already exists"
+          };
+        }
+        
+        // Add department to Firestore
+        const departmentRef = await addDoc(departmentsRef, {
+          ...departmentData,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        });
+        
+        return {
+          success: true,
+          message: "Department added successfully",
+          id: departmentRef.id
+        };
+      } catch (error) {
+        console.error("Error adding department:", error);
+        return {
+          success: false,
+          message: "Failed to add department: " + error.message
+        };
+      }
+    };
+    
+    // Add a new course
+    const addCourse = async (courseData) => {
+      try {
+        if (!courseData || !courseData.name || !courseData.code || !courseData.department) {
+          return {
+            success: false,
+            message: "Course name, code, and department are required"
+          };
+        }
+        
+        // Check if course already exists
+        const coursesRef = collection(db, "courses");
+        const existingCourseQuery = query(
+          coursesRef,
+          where("code", "==", courseData.code)
+        );
+        const existingCourse = await getDocs(existingCourseQuery);
+        
+        if (!existingCourse.empty) {
+          return {
+            success: false,
+            message: "A course with this code already exists"
+          };
+        }
+        
+        // Add course to Firestore
+        const courseRef = await addDoc(coursesRef, {
+          ...courseData,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        });
+        
+        return {
+          success: true,
+          message: "Course added successfully",
+          id: courseRef.id
+        };
+      } catch (error) {
+        console.error("Error adding course:", error);
+        return {
+          success: false,
+          message: "Failed to add course: " + error.message
+        };
+      }
+    };
+    
+    // Get available rooms
+    const getAvailableRooms = async (date, startTime, endTime) => {
+      try {
+        // First get all rooms
+        const roomsRef = collection(db, "rooms");
+        const allRoomsSnapshot = await getDocs(roomsRef);
+        
+        const allRooms = [];
+        allRoomsSnapshot.forEach((doc) => {
+          allRooms.push({
+            id: doc.id,
+            ...doc.data()
+          });
+        });
+        
+        // Get classes scheduled during the specified time
+        const timetableRef = collection(db, "timetable");
+        const overlappingClassesQuery = query(
+          timetableRef,
+          where("date", "==", date),
+          where("startTime", "<", endTime),
+          where("endTime", ">", startTime)
+        );
+        
+        const overlappingClasses = await getDocs(overlappingClassesQuery);
+        
+        // Extract rooms that are already booked
+        const bookedRoomIds = new Set();
+        overlappingClasses.forEach((doc) => {
+          const classData = doc.data();
+          bookedRoomIds.add(classData.room);
+        });
+        
+        // Filter out booked rooms
+        const availableRooms = allRooms.filter(room => !bookedRoomIds.has(room.id));
+        
+        return availableRooms;
+      } catch (error) {
+        console.error("Error getting available rooms:", error);
+        return [];
+      }
+    };
+    
+    // Add a new room
+    const addRoom = async (roomData) => {
+      try {
+        if (!roomData || !roomData.name || !roomData.capacity) {
+          return {
+            success: false,
+            message: "Room name and capacity are required"
+          };
+        }
+        
+        // Check if room already exists
+        const roomsRef = collection(db, "rooms");
+        const existingRoomQuery = query(
+          roomsRef,
+          where("name", "==", roomData.name)
+        );
+        const existingRoom = await getDocs(existingRoomQuery);
+        
+        if (!existingRoom.empty) {
+          return {
+            success: false,
+            message: "A room with this name already exists"
+          };
+        }
+        
+        // Add room to Firestore
+        const roomRef = await addDoc(roomsRef, {
+          ...roomData,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        });
+        
+        return {
+          success: true,
+          message: "Room added successfully",
+          id: roomRef.id
+        };
+      } catch (error) {
+        console.error("Error adding room:", error);
+        return {
+          success: false,
+          message: "Failed to add room: " + error.message
+        };
+      }
+    };
+    
+    // Add notification for a specific user
+    const addNotification = async (userId, notification) => {
+      try {
+        if (!userId || !notification || !notification.message || !notification.type) {
+          return {
+            success: false,
+            message: "User ID, notification message and type are required"
+          };
+        }
+        
+        // Add notification to Firestore
+        const notificationsRef = collection(db, "notifications");
+        const notificationRef = await addDoc(notificationsRef, {
+          userId,
+          ...notification,
+          read: false,
+          createdAt: new Date().toISOString()
+        });
+        
+        return {
+          success: true,
+          message: "Notification added successfully",
+          id: notificationRef.id
+        };
+      } catch (error) {
+        console.error("Error adding notification:", error);
+        return {
+          success: false,
+          message: "Failed to add notification: " + error.message
+        };
+      }
+    };
+    
+    // Get user notifications
+    const getUserNotifications = async (userId) => {
+      try {
+        if (!userId) {
+          return [];
+        }
+        
+        const notificationsRef = collection(db, "notifications");
+        const q = query(
+          notificationsRef,
+          where("userId", "==", userId),
+          where("read", "==", false)
+        );
+        
+        const querySnapshot = await getDocs(q);
+        
+        const notifications = [];
+        querySnapshot.forEach((doc) => {
+          notifications.push({
+            id: doc.id,
+            ...doc.data()
+          });
+        });
+        
+        return notifications;
+      } catch (error) {
+        console.error("Error fetching user notifications:", error);
+        return [];
+      }
+    };
+    
+    // Mark notification as read
+    const markNotificationAsRead = async (notificationId) => {
+      try {
+        const notificationRef = doc(db, "notifications", notificationId);
+        
+        await updateDoc(notificationRef, {
+          read: true,
+          readAt: new Date().toISOString()
+        });
+        
+        return {
+          success: true,
+          message: "Notification marked as read"
+        };
+      } catch (error) {
+        console.error("Error marking notification as read:", error);
+        return {
+          success: false,
+          message: "Failed to update notification: " + error.message
+        };
+      }
+    };
+    
+    // Export all the functions
+    export {
+      auth,
+      db,
+      getCurrentUser,
+      signOutUser,
+      resendVerificationEmail,
+      updateUserProfile,
+      checkEmailExists,
+      countUsersByRole,
+      checkAdminRegistrationStatus,
+      checkCourseHasRep,
+      isValidLecturerEmail,
+      isValidStudentEmail,
+      getAdminCount,
+      checkClassRepExists,
+      validateEmailByRole,
+      createNewUser,
+      signInUser,
+      ensureCollectionExists,
+      getLecturerTimetable,
+      getCourseTimetable,
+      getDepartmentTimetable,
+      subscribeLecturerTimetable,
+      subscribeCourseTimetable,
+      getTodayClasses,
+      addClassToTimetable,
+      getUpcomingWeekClasses,
+      getLecturers,
+      getClassReps,
+      createClass,
+      approveUserAccount,
+      rejectUserAccount,
+      getPendingApprovalUsers,
+      updateClassStatus,
+      rescheduleClass,
+      getAllDepartments,
+      getCoursesByDepartment,
+      addDepartment,
+      addCourse,
+      getAvailableRooms,
+      addRoom,
+      addNotification,
+      getUserNotifications,
+      markNotificationAsRead
+    };

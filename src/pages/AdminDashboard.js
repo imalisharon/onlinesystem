@@ -5,6 +5,7 @@ import dayGridPlugin from "@fullcalendar/daygrid";
 import interactionPlugin from "@fullcalendar/interaction";
 import timeGridPlugin from "@fullcalendar/timegrid";
 import listPlugin from "@fullcalendar/list";
+import AddClassModal from '../components/AddClassModal'; // Add this import
 import { 
   db, 
   getCurrentUser,
@@ -388,6 +389,20 @@ const AdminDashboard = () => {
     setNotifications(prev => prev.filter(note => note.id !== id));
   };
 
+  // Open modal with new event data
+  const openModal = () => {
+    setModalData({
+      type: "newEvent",
+      data: { date: new Date().toISOString().split('T')[0] }
+    });
+    setIsModalOpen(true);
+  };
+
+  // Close modal
+  const closeModal = () => {
+    setIsModalOpen(false);
+  };
+
   // If user is not authenticated as admin, show loading state
   if (!currentUser) {
     return (
@@ -485,14 +500,8 @@ const AdminDashboard = () => {
               <div className="section-header">
                 <h2>Class Schedule</h2>
                 <button 
-                  className="action-btn primary" 
-                  onClick={() => {
-                    setModalData({
-                      type: "newEvent",
-                      data: { date: new Date().toISOString().split('T')[0] }
-                    });
-                    setIsModalOpen(true);
-                  }}
+                  className="action-btn primary add-class-button" 
+                  onClick={openModal}
                 >
                   <PlusSquare size={16} /> Add Class
                 </button>
@@ -658,175 +667,31 @@ const AdminDashboard = () => {
           )}
         </div>
         
-        {/* Event Modal */}
-        {isModalOpen && (
-          <div className="modal-overlay">
-            <div className="modal-container">
-              <div className="modal-header">
-                <h3>{modalData.type === "newEvent" ? "Schedule New Class" : "Edit Class"}</h3>
-                <button className="close-btn" onClick={() => setIsModalOpen(false)}>
-                  <X size={18} />
-                </button>
-              </div>
-              <EventForm 
-                initialData={modalData.data}
-                lecturers={lecturers}
-                classReps={classReps}
-                onSubmit={async (data) => {
-                  let success;
-                  if (modalData.type === "newEvent") {
-                    success = await handleCreateEvent(data);
-                  } else {
-                    success = await handleUpdateEvent(modalData.data.id, data);
-                  }
-                  
-                  if (success) setIsModalOpen(false);
-                }}
-                onCancel={() => setIsModalOpen(false)}
-                onDelete={modalData.type === "editEvent" ? () => {
-                  handleEventDelete(modalData.data.id);
-                  setIsModalOpen(false);
-                } : null}
-              />
-            </div>
-          </div>
-        )}
+        {/* Replace the inline modal with the AddClassModal component */}
+        <AddClassModal 
+          isOpen={isModalOpen} 
+          onClose={closeModal}
+          initialData={modalData.data}
+          modalType={modalData.type}
+          lecturers={lecturers}
+          classReps={classReps}
+          onSubmit={async (data) => {
+            let success;
+            if (modalData.type === "newEvent") {
+              success = await handleCreateEvent(data);
+            } else {
+              success = await handleUpdateEvent(modalData.data.id, data);
+            }
+            
+            if (success) closeModal();
+          }}
+          onDelete={modalData.type === "editEvent" ? () => {
+            handleEventDelete(modalData.data.id);
+            closeModal();
+          } : null}
+        />
       </div>
     </DashboardLayout>
-  );
-};
-
-// Event Form Component
-const EventForm = ({ initialData, lecturers, classReps, onSubmit, onCancel, onDelete }) => {
-  const [formData, setFormData] = useState({
-    title: initialData.title || "",
-    course: initialData.course || "",
-    lecturer: initialData.lecturer || "",
-    room: initialData.room || "",
-    classRep: initialData.classRep || "",
-    start: initialData.date || initialData.start || new Date().toISOString().split('T')[0],
-    end: initialData.end || initialData.date || new Date().toISOString().split('T')[0],
-  });
-
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
-  };
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    onSubmit(formData);
-  };
-
-  return (
-    <form onSubmit={handleSubmit} className="event-form">
-      <div className="form-group">
-        <label>Class Title</label>
-        <input 
-          type="text" 
-          name="title" 
-          value={formData.title} 
-          onChange={handleChange} 
-          required 
-          placeholder="Introduction to Programming"
-        />
-      </div>
-      
-      <div className="form-group">
-        <label>Course Code</label>
-        <input 
-          type="text" 
-          name="course" 
-          value={formData.course} 
-          onChange={handleChange} 
-          placeholder="CS101"
-        />
-      </div>
-      
-      <div className="form-group">
-        <label>Lecturer</label>
-        <select 
-          name="lecturer" 
-          value={formData.lecturer} 
-          onChange={handleChange} 
-          required
-        >
-          <option value="">Select a lecturer</option>
-          {lecturers.map(lecturer => (
-            <option key={lecturer.id} value={lecturer.email}>{lecturer.email}</option>
-          ))}
-          <option value="new">Add New Lecturer</option>
-        </select>
-        {formData.lecturer === "new" && (
-          <input 
-            type="text" 
-            name="newLecturer" 
-            placeholder="Enter new lecturer email" 
-            onChange={(e) => setFormData(prev => ({ 
-              ...prev, 
-              lecturer: e.target.value 
-            }))} 
-          />
-        )}
-      </div>
-      
-      <div className="form-group">
-        <label>Class Representative</label>
-        <select 
-          name="classRep" 
-          value={formData.classRep} 
-          onChange={handleChange}
-        >
-          <option value="">Select a class rep</option>
-          {classReps.map(rep => (
-            <option key={rep.id} value={rep.email}>{rep.email}</option>
-          ))}
-        </select>
-      </div>
-      
-      <div className="form-group">
-        <label>Room</label>
-        <input 
-          type="text" 
-          name="room" 
-          value={formData.room} 
-          onChange={handleChange} 
-          placeholder="A101"
-        />
-      </div>
-      
-      <div className="form-row">
-        <div className="form-group">
-          <label>Start Date</label>
-          <input 
-            type="datetime-local" 
-            name="start" 
-            value={formData.start} 
-            onChange={handleChange} 
-            required 
-          />
-        </div>
-        
-        <div className="form-group">
-          <label>End Date</label>
-          <input 
-            type="datetime-local" 
-            name="end" 
-            value={formData.end} 
-            onChange={handleChange} 
-            required 
-          />
-        </div>
-      </div>
-      
-      <div className="form-actions">
-        <button type="button" className="cancel-btn" onClick={onCancel}>Cancel</button>
-        {onDelete && (
-          <button type="button" className="delete-btn" onClick={onDelete}>Delete</button>
-        )}
-        <button type="submit" className="submit-btn">Save</button>
-      </div>
-    </form>
   );
 };
 
