@@ -25,6 +25,7 @@ import {
   onSnapshot
 } from "firebase/firestore";
 
+
 // Firebase configuration
 const firebaseConfig = {
   apiKey: "AIzaSyAu_esBl215EHVDMsnQEk-mo_sWpaW-8nU",
@@ -952,7 +953,7 @@ export const getClassRepSchedule = async (classRepId) => {
   }
 };
 
-// Create a new class with check for room scheduling conflicts
+
 const createClass = async (classData) => {
   try {
     if (!classData) {
@@ -996,15 +997,33 @@ const createClass = async (classData) => {
     
     // Update the lecturer's schedule
     const lecturerRef = doc(db, "lecturers", classData.lecturerId);
-    await updateDoc(lecturerRef, {
-      schedule: arrayUnion(classId)
-    });
+    const lecturerDoc = await getDoc(lecturerRef);
+    if (!lecturerDoc.exists()) {
+      // Create the lecturer document if it doesn't exist
+      await setDoc(lecturerRef, {
+        schedule: [classId]
+      });
+    } else {
+      // Otherwise, update the existing document
+      await updateDoc(lecturerRef, {
+        schedule: arrayUnion(classId)
+      });
+    }
     
     // Update the class rep's schedule
     const classRepRef = doc(db, "classReps", classData.classRepId);
-    await updateDoc(classRepRef, {
-      schedule: arrayUnion(classId)
-    });
+    const classRepDoc = await getDoc(classRepRef);
+    if (!classRepDoc.exists()) {
+      // Create the class rep document if it doesn't exist
+      await setDoc(classRepRef, {
+        schedule: [classId]
+      });
+    } else {
+      // Otherwise, update the existing document
+      await updateDoc(classRepRef, {
+        schedule: arrayUnion(classId)
+      });
+    }
     
     return {
       success: true,

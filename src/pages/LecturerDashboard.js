@@ -9,7 +9,7 @@ import { db } from "../firebase/firebaseConfig";
 import { collection, getDocs, query, where, addDoc, updateDoc, doc } from "firebase/firestore";
 import { toast } from "react-toastify";
 import { Clock, Calendar, Bell, Users, BookOpen, MessageSquare } from "lucide-react";
-
+import { useNavigate } from "react-router-dom";
 const LecturerDashboard = ({ lecturerName, lecturerId }) => {
   const [events, setEvents] = useState([]);
   const [reminders, setReminders] = useState([]);
@@ -21,6 +21,20 @@ const LecturerDashboard = ({ lecturerName, lecturerId }) => {
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [showEventModal, setShowEventModal] = useState(false);
   const [attendanceData, setAttendanceData] = useState({});
+  const LessonButton = () => {
+    const navigate = useNavigate();
+  
+    const handleRedirect = () => {
+      navigate("/lesson-plans");
+    };
+  
+    return (
+      <button className="action-button" onClick={handleRedirect}>
+        <BookOpen className="action-icon" />
+        <span>Lesson Plans</span>
+      </button>
+    );
+  };
 
   // Fetch events assigned to the logged-in lecturer
   useEffect(() => {

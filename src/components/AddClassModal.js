@@ -86,10 +86,19 @@ const AddClassModal = ({ isOpen, onClose }) => {
         return;
       }
       
+      // Retrieve the selected lecturer's email
+      const selectedLecturer = lecturers.find(l => l.id === formData.lecturer);
+      if (!selectedLecturer || !selectedLecturer.email) {
+        setError("Selected lecturer does not have an email address");
+        setLoading(false);
+        return;
+      }
+      
       // Create class in Firebase
       const result = await createClass({
         title: formData.classTitle,
         courseCode: formData.courseCode,
+        lecturerEmail: selectedLecturer.email, // Pass the lecturer's email
         lecturerId: formData.lecturer,
         classRepId: formData.classRep,
         room: formData.room,
