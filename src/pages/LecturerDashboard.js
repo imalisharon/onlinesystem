@@ -10,6 +10,7 @@ import { collection, getDocs, query, where, addDoc, updateDoc, doc } from "fireb
 import { toast } from "react-toastify";
 import { Clock, Calendar, Bell, Users, BookOpen, MessageSquare } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+
 const LecturerDashboard = ({ lecturerName, lecturerId }) => {
   const [events, setEvents] = useState([]);
   const [reminders, setReminders] = useState([]);
@@ -21,20 +22,9 @@ const LecturerDashboard = ({ lecturerName, lecturerId }) => {
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [showEventModal, setShowEventModal] = useState(false);
   const [attendanceData, setAttendanceData] = useState({});
-  const LessonButton = () => {
-    const navigate = useNavigate();
-  
-    const handleRedirect = () => {
-      navigate("/lesson-plans");
-    };
-  
-    return (
-      <button className="action-button" onClick={handleRedirect}>
-        <BookOpen className="action-icon" />
-        <span>Lesson Plans</span>
-      </button>
-    );
-  };
+
+  // Initialize useNavigate for redirection
+  const navigate = useNavigate();
 
   // Fetch events assigned to the logged-in lecturer
   useEffect(() => {
@@ -394,7 +384,7 @@ const LecturerDashboard = ({ lecturerName, lecturerId }) => {
                   <Users className="action-icon" />
                   <span>Attendance</span>
                 </button>
-                <button className="action-button">
+                <button className="action-button" onClick={() => navigate("/classes")}>
                   <BookOpen className="action-icon" />
                   <span>Lesson Plans</span>
                 </button>
@@ -539,7 +529,7 @@ const LecturerDashboard = ({ lecturerName, lecturerId }) => {
           </div>
         </div>
       )}
-      <style>{` 
+     <style>{` 
   .welcome-container {
   background-color: #fff;
   border-radius: 8px;

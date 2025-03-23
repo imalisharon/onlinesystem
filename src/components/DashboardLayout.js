@@ -50,7 +50,8 @@ const DashboardLayout = ({ children, userRole = "admin" }) => {
         { icon: <Calendar size={18} />, text: "Timetable", link: "/lecturer-dashboard" },
         { icon: <Users size={18} />, text: "Students", link: "/students" },
         { icon: <Clock size={18} />, text: "Today's Classes", link: "/today-classes" },
-        { icon: <FileText size={18} />, text: "Lesson Plans", link: "/lesson-plans" },
+        { icon: <FileText size={18} />, text: "Lesson Plans", link: "/classes" },
+
         { icon: <Bell size={18} />, text: "Attendance", link: "/attendance" },
         { icon: <MessageSquare size={18} />, text: "Messages", link: "/messages" },
         { icon: <BarChart2 size={18} />, text: "Reports", link: "/reports" }
